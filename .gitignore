@@ -1,6 +1,10 @@
 .terraform/
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
 .terraform.lock.hcl
+*.auto.tfvars
+*.auto.tfvars.json
+terraform.tfvars
+crash.log
 .idea/
 *.iml

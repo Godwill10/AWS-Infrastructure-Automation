@@ -3,15 +3,19 @@ resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 }
 
-# Internet Gateway
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
 }
 
-# Availability Zones
-data "aws_availability_zones" "available" {}
+data "aws_availability_zones" "available" {
+  state = "available"
+}
 
-# Public Subnets (2 AZs)
+# Resolve the current Amazon Linux 2023 image instead of pinning a regional AMI.
+data "aws_ssm_parameter" "amazon_linux_2023" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+}
+
 resource "aws_subnet" "public" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
@@ -20,7 +24,6 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 }
 
-# Private Subnets (2 AZs)
 resource "aws_subnet" "private" {
   count             = 2
   vpc_id            = aws_vpc.main.id
@@ -28,7 +31,6 @@ resource "aws_subnet" "private" {
   availability_zone = data.aws_availability_zones.available.names[count.index]
 }
 
-# Route Table for Public
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 }
@@ -45,7 +47,6 @@ resource "aws_route_table_association" "public_assoc" {
   route_table_id = aws_route_table.public.id
 }
 
-# Security Group - Web
 resource "aws_security_group" "web_sg" {
   name_prefix = "web-"
   description = "Allow inbound HTTP traffic"
@@ -68,7 +69,6 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# Security Group - RDS
 resource "aws_security_group" "rds_sg" {
   name_prefix = "rds-"
   description = "Allow MySQL traffic from the web tier"
@@ -83,46 +83,55 @@ resource "aws_security_group" "rds_sg" {
   }
 }
 
-# EC2 Instances
 resource "aws_instance" "web1" {
-  ami                    = "ami-0c02fb55956c7d316"
-  instance_type          = "t2.micro"
+  ami                    = data.aws_ssm_parameter.amazon_linux_2023.value
+  instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public[0].id
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
-  tags = {
-    Name = var.instance1_name
+  metadata_options {
+    http_tokens = "required"
   }
+
+  root_block_device {
+    encrypted = true
+  }
+
+  tags = { Name = var.instance1_name }
 }
 
 resource "aws_instance" "web2" {
-  ami                    = "ami-0c02fb55956c7d316"
-  instance_type          = "t2.micro"
+  ami                    = data.aws_ssm_parameter.amazon_linux_2023.value
+  instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public[1].id
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
-  tags = {
-    Name = var.instance2_name
+  metadata_options {
+    http_tokens = "required"
   }
+
+  root_block_device {
+    encrypted = true
+  }
+
+  tags = { Name = var.instance2_name }
 }
 
-# RDS Subnet Group
 resource "aws_db_subnet_group" "rds_subnet_group" {
   name_prefix = "portfolio-rds-"
   subnet_ids  = aws_subnet.private[*].id
 }
 
-# RDS Instance
 resource "aws_db_instance" "mysql" {
-  allocated_storage       = 20
-  engine                  = "mysql"
-  engine_version          = "8.0"
-  instance_class          = "db.t3.micro"
-  username                = var.db_username
-  password                = var.db_password
-  db_subnet_group_name    = aws_db_subnet_group.rds_subnet_group.name
-  vpc_security_group_ids  = [aws_security_group.rds_sg.id]
-  publicly_accessible     = false
-  storage_encrypted       = true
-  skip_final_snapshot     = true
+  allocated_storage      = 20
+  engine                 = "mysql"
+  engine_version         = "8.0"
+  instance_class         = "db.t3.micro"
+  username               = var.db_username
+  password               = var.db_password
+  db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+  publicly_accessible    = false
+  storage_encrypted      = true
+  skip_final_snapshot    = true
 }
